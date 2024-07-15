@@ -7,7 +7,7 @@ use rand::{self, Rng};
 
 fn main() {
 
-	println!("rikiaaan-terminal-wallpaper-changer v1.0.0");
+	println!("rikiaaan-terminal-background-image-changer v1.0.0");
 
 	let started_time = SystemTime::now();
 
