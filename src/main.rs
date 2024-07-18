@@ -1,5 +1,4 @@
-#![allow(unused)]
-use std::{env, ffi::OsString, fs, path::{Path, PathBuf}, process::{self, exit}, time::SystemTime};
+use std::{env, ffi::OsString, fs, path::PathBuf, process::exit, time::SystemTime};
 
 use uuid::Uuid;
 use regex::Regex;
@@ -87,6 +86,7 @@ fn main() {
 
 
 mod tests {
+	#![allow(unused_imports)]
     use std::str::FromStr;
 
     use super::*;
