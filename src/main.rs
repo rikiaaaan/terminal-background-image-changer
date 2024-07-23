@@ -6,7 +6,7 @@ use rand::{self, Rng};
 
 fn main() {
 
-	println!("rikiaaan-terminal-background-image-changer v1.2.0");
+	println!("rikiaaan-terminal-background-image-changer v1.2.1");
 
 	let started_time = SystemTime::now();
 
@@ -60,10 +60,11 @@ fn main() {
 			.unwrap()
 			.for_each(|file| {
 				let file = file.unwrap();
+				let file_metadata = file.metadata().unwrap();
 				let file_name = file.file_name();
 
-				// もし指定した拡張子に合っていなかったら
-				if !extension_regex.is_match(file_name.to_str().unwrap()) {
+				// もし指定した拡張子に合っていなかった、またはファイルじゃないなら
+				if !extension_regex.is_match(file_name.to_str().unwrap()) || !file_metadata.is_file() {
 					// continue的なreturn
 					return;
 				}
