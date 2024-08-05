@@ -1,46 +1,35 @@
-use std::{env, ffi::OsString, fs::{self, File}, io::{BufRead, BufReader, BufWriter, Write}, path::PathBuf, process::exit, thread, time::{Duration, SystemTime}};
+use std::{env, ffi::{OsStr, OsString}, fs::{self, File}, io::{BufRead, BufReader, BufWriter, Write}, path::PathBuf, process::exit, thread, time::{Duration, SystemTime}};
 
 use uuid::Uuid;
-use regex::Regex;
 use rand::{self, Rng};
 
 fn main() {
 
-	println!("rikiaaan-terminal-background-image-changer v1.2.1");
+	println!("rikiaaan-terminal-background-image-changer v1.3.0");
 
 	let started_time = SystemTime::now();
 
 	let args = {
 		let args: Vec<OsString> = env::args_os().collect();
-		if args.len()-1 != 3 {
+		if args.len()-1 != 2 {
 			eprintln!("[ERROR] invalid arg counts.");
 			exit(-1);
 		}
 		args
 	};
 
-	let background_dir = {
+	// new
+	let background_image_source_dir = {
 		let path_buf = PathBuf::from(&args[1]);
 		if !path_buf.exists() {
-			eprintln!("[ERROR] background directory does not exist");
-			exit(-1);
-		}
-		path_buf
-	};
-
-	let image_extension = *(&args[2].to_str().unwrap());
-
-	let background_source_dir = {
-		let path_buf = (&background_dir).join("s");
-		if !path_buf.exists() {
-			eprintln!("[ERROR] background souce directory does not exist");
+			eprintln!("[ERROR] background image source directory does not exist");
 			exit(-1);
 		}
 		path_buf
 	};
 
 	let windows_terminal_settings_json_path = {
-		let path_buf = PathBuf::from(&args[3]);
+		let path_buf = PathBuf::from(&args[2]);
 		if !path_buf.exists() {
 			eprintln!("[ERROR] settings.json does not exist");
 			exit(-1);
@@ -48,23 +37,19 @@ fn main() {
 		path_buf
 	};
 	
-	{
+	let random_unique_name_path = {
 		let image_random_change_started_time = SystemTime::now();
 
 		let mut file_entry: Vec<PathBuf> = Vec::new();
 
-		// /\.jpg$/ とか /\.png$/ とか
-		let extension_regex = Regex::new(format!("\\.{}$", image_extension).as_str()).unwrap();
-
-		fs::read_dir(&background_source_dir)
+		fs::read_dir(&background_image_source_dir)
 			.unwrap()
 			.for_each(|file| {
 				let file = file.unwrap();
 				let file_metadata = file.metadata().unwrap();
-				let file_name = file.file_name();
 
-				// もし指定した拡張子に合っていなかった、またはファイルじゃないなら
-				if !extension_regex.is_match(file_name.to_str().unwrap()) || !file_metadata.is_file() {
+				// もしファイルじゃないなら
+				if !file_metadata.is_file() {
 					// continue的なreturn
 					return;
 				}
@@ -72,36 +57,40 @@ fn main() {
 				file_entry.push(file.path());
 			});
 
-		let file_entry_len = file_entry.len();
 
-		if file_entry_len < 2 {
-			eprintln!("[ERROR] at least 2 images are required");
-			exit(-1);
-		}
-
-		let random_number = rand::thread_rng().gen_range(0..file_entry_len);
-
-		let image_dist_path = (&background_dir).join(format!("image.{}", image_extension));
-		let image_target_path = &file_entry[random_number];
-
-		if (&image_dist_path).exists() {
-			let uuid = Uuid::new_v4();
-			let last_image_path = background_source_dir.join(format!("{}_last_image.{}", uuid, image_extension));
-			if let Err(err) = fs::rename(&image_dist_path, &last_image_path) {
-				eprintln!("{:?}", err);
+		let image_target_path = {
+			let file_entry_len = file_entry.len();
+			
+			if file_entry_len == 1 {
+				eprintln!("[ERROR] image source directory is empty");
+				exit(-1);
 			}
-		}
 
-		if let Err(err) = fs::rename(image_target_path, &image_dist_path) {
+			let random_number = rand::thread_rng().gen_range(0..file_entry_len);
+			&file_entry[random_number]
+		};
+
+		let image_random_unique_name_path = {
+			let uuid = Uuid::new_v4();
+			let target_image_extension = image_target_path.extension().unwrap_or(OsStr::new(""));
+
+			let unique_name = format!("{}_image.{}", uuid, target_image_extension.to_str().unwrap());
+
+			background_image_source_dir.join(unique_name)
+		};
+
+		if let Err(err) = fs::rename(image_target_path, &image_random_unique_name_path) {
 			eprintln!("{:?}", err);
 		}
 
 		let elapsed = SystemTime::now().duration_since(image_random_change_started_time).unwrap();
-		println!("image random change finished: {}ms", elapsed.as_millis());
-	}
+		println!("image random selection finished: {}ms", elapsed.as_millis());
+
+		image_random_unique_name_path
+	};
 
 
-	let mut settings_file_backup_vec: Vec<u8> = Vec::new();
+	let mut settings_file_change_vec: Vec<u8> = Vec::new();
 	let mut settings_file_background_image_null_vec: Vec<u8> = Vec::new();
 
 	{
@@ -110,6 +99,8 @@ fn main() {
 		let settings_json_file_read = File::open(&windows_terminal_settings_json_path).unwrap();
 		let reader = BufReader::new(settings_json_file_read);
 
+		let random_unique_name = random_unique_name_path.to_str().unwrap_or("").replace("\\", "\\\\");
+
 		reader.lines().for_each(|line| {
 			let line = {
 				let line = line.unwrap_or(String::new());
@@ -117,14 +108,14 @@ fn main() {
 			};
 			let line_bytes = line.as_bytes();
 
-			_ = settings_file_backup_vec.write(line_bytes);
-
 			if (&line).contains("\"backgroundImage\": ") {
 				let buf = "\"backgroundImage\": \"\",\n".as_bytes();
 
 				_ = settings_file_background_image_null_vec.write(buf);
+				_ = settings_file_change_vec.write_fmt(format_args!("\t\t\t\"backgroundImage\": \"{}\",\n", random_unique_name));
 			} else {
 				_ = settings_file_background_image_null_vec.write(line_bytes);
+				_ = settings_file_change_vec.write(line_bytes);
 			}
 		});
 
@@ -154,8 +145,8 @@ fn main() {
 		let settings_json_file_write = File::create(&windows_terminal_settings_json_path).unwrap();
 		let mut file_writer = BufWriter::new(settings_json_file_write);
 
-		let backup_buf = settings_file_backup_vec.as_slice();
-		_ = file_writer.write_all(backup_buf);
+		let changed_buf = settings_file_change_vec.as_slice();
+		_ = file_writer.write_all(changed_buf);
 		_ = file_writer.flush();
 	}
 
@@ -168,15 +159,15 @@ fn main() {
 
 mod tests {
 	#![allow(unused_imports)]
-    use std::{io::{BufRead, BufReader, BufWriter, Write}, os::windows, ptr::read, str::FromStr, thread, time::Duration};
+	use std::{io::{BufRead, BufReader, BufWriter, Write}, os::windows, ptr::read, str::FromStr, thread, time::Duration};
 
-    use fs::File;
+	use fs::File;
 
-    use super::*;
+	use super::*;
 
 	#[test]
 	fn test() {
-		assert!(env::args().count() == 1);
+		println!("{:?}", std::env::current_dir().unwrap());
 	}
 
 	#[test]
@@ -289,6 +280,48 @@ mod tests {
 
 			test_file_writer.write_all(backup_buf).unwrap();
 			test_file_writer.flush().unwrap();
+		}
+	}
+	#[test]
+	fn test5() {
+		let test_file = PathBuf::from_str(r"C:\Users\[user_name]\AppData\Local\Packages\Microsoft.WindowsTerminal_8wekyb3d8bbwe\LocalState\settings_test.json").unwrap();
+		let null_path = PathBuf::from_str(r"C:\Users\[user_name]\AppData\Local\Packages\Microsoft.WindowsTerminal_8wekyb3d8bbwe\LocalState\settings_null.json").unwrap();
+
+		let org_file = PathBuf::from_str(r"C:\Users\[user_name]\AppData\Local\Packages\Microsoft.WindowsTerminal_8wekyb3d8bbwe\LocalState\settings.json").unwrap();
+
+		let file = File::open(&org_file).unwrap();
+		let reader = BufReader::new(file);
+
+		let mut test_buf: Vec<u8> = Vec::new();
+		let mut nuller: Vec<u8> = Vec::new();
+
+		reader.lines().for_each(|line| {
+			let line = {
+				let line = line.unwrap_or(String::new());
+				format!("{}\n", line)
+			};
+
+			if (&line).contains("\"backgroundImage\": ") {
+				test_buf.write_fmt(format_args!("\t\t\t\"backgroundImage\": \"{}\",\n", "HelloWorld.jpg")).unwrap();
+				nuller.write(b"\t\t\t\"backgroundImage\": \"\",\n").unwrap();
+			} else {
+				test_buf.write(line.as_bytes()).unwrap();
+				nuller.write(line.as_bytes()).unwrap();
+			}
+		});
+
+		{
+			let settings_test_file_write = File::create(&test_file).unwrap();
+			let mut file_writer = BufWriter::new(settings_test_file_write);
+			file_writer.write_all(&test_buf).unwrap();
+			file_writer.flush().unwrap();
+		}
+
+		{
+			let settings_test_file_write = File::create(&null_path).unwrap();
+			let mut file_writer = BufWriter::new(settings_test_file_write);
+			file_writer.write_all(&nuller).unwrap();
+			file_writer.flush().unwrap();
 		}
 	}
 }
