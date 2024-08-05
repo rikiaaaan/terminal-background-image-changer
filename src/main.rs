@@ -3,6 +3,7 @@ use std::{env, ffi::{OsStr, OsString}, fs::{self, File}, io::{BufRead, BufReader
 use uuid::Uuid;
 use rand::{self, Rng};
 
+// TODO: 選択の重複をなくす
 fn main() {
 
 	println!("rikiaaan-terminal-background-image-changer v1.3.0");
