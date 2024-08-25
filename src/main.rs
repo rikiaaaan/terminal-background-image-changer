@@ -1,5 +1,5 @@
 #![allow(deprecated)]
-use std::{env, ffi::{OsStr, OsString}, fs::{self, File}, io::{self, BufRead, BufReader, BufWriter, Write}, path::PathBuf, thread, time::{Duration, SystemTime}};
+use std::{env, ffi::{OsStr, OsString}, fs::{self, File}, io::{self, BufRead, BufReader, BufWriter, Write}, path::PathBuf, time::SystemTime};
 
 use uuid::Uuid;
 use rand::{self, Rng};
@@ -7,127 +7,118 @@ use rand::{self, Rng};
 
 #[derive(Debug)]
 enum AppError {
-    NotEnoughArgs,
-    ImageSourceNotExist,
-    ImageSourceIsNotDirectory,
-    ImageSourceEmpty,
-    SettingsJsonNotExist,
-    IoError(io::Error),
+	NotEnoughArgs,
+	ImageSourceNotExist,
+	ImageSourceIsNotDirectory,
+	ImageSourceEmpty,
+	SettingsJsonNotExist,
+	IoError(io::Error),
 }
 
 
 fn parse_args() -> std::result::Result<Vec<PathBuf>, AppError> {
-    let args = env::args_os().collect::<Vec<OsString>>();
-    if args.len() - 1 < 2 {
-        return Err(AppError::NotEnoughArgs);
-    }
+	let args = env::args_os().collect::<Vec<OsString>>();
+	if args.len() - 1 < 2 {
+		return Err(AppError::NotEnoughArgs);
+	}
 
-    let background_image_source_dir = PathBuf::from(&args[1]);
-    if !background_image_source_dir.exists() {
-        return Err(AppError::ImageSourceNotExist);
-    }
-    if !background_image_source_dir.is_dir() {
-        return Err(AppError::ImageSourceIsNotDirectory);
-    }
-    
+	let background_image_source_dir = PathBuf::from(&args[1]);
+	if !background_image_source_dir.exists() {
+		return Err(AppError::ImageSourceNotExist);
+	}
+	if !background_image_source_dir.is_dir() {
+		return Err(AppError::ImageSourceIsNotDirectory);
+	}
+	
 
-    let settings_json_path = PathBuf::from(&args[2]);
-    if !settings_json_path.exists() {
-        return Err(AppError::SettingsJsonNotExist);
-    }
-    
-    Ok(vec![background_image_source_dir, settings_json_path])
+	let settings_json_path = PathBuf::from(&args[2]);
+	if !settings_json_path.exists() {
+		return Err(AppError::SettingsJsonNotExist);
+	}
+	
+	Ok(vec![background_image_source_dir, settings_json_path])
 }
 
 
 fn choose_random_image_path(background_image_source_dir: &PathBuf) -> std::result::Result<PathBuf, AppError> {
-    let mut file_entry = Vec::new();
+	let mut file_entry = Vec::new();
 
-    match fs::read_dir(background_image_source_dir) {
-        Ok(dir_entry) => dir_entry.for_each(|file| {
-            let file = file.unwrap();
+	match fs::read_dir(background_image_source_dir) {
+		Ok(dir_entry) => dir_entry.for_each(|file| {
+			let file = file.unwrap();
 
-            if !file.metadata().unwrap().is_file() {
-                return;
-            }
+			if !file.metadata().unwrap().is_file() {
+				return;
+			}
 
-            file_entry.push(file.path());
-        }),
-        Err(err) => return Err(AppError::IoError(err)),
-    };
+			file_entry.push(file.path());
+		}),
+		Err(err) => return Err(AppError::IoError(err)),
+	};
 
-    let file_entry_len = file_entry.len();
-    if file_entry_len == 0 {
-        return Err(AppError::ImageSourceEmpty);
-    }
+	let file_entry_len = file_entry.len();
+	if file_entry_len == 0 {
+		return Err(AppError::ImageSourceEmpty);
+	}
 
-    let random_number = rand::thread_rng().gen_range(0..file_entry_len);
-    Ok((&file_entry[random_number]).to_owned())
+	let random_number = rand::thread_rng().gen_range(0..file_entry_len);
+	Ok((&file_entry[random_number]).to_owned())
 }
 
 
 fn generate_unique_image_name(image_extension: &OsStr, image_source_directory: &PathBuf) -> PathBuf {
-    let uuid = Uuid::new_v4();
+	let uuid = Uuid::new_v4();
 
-    image_source_directory.join(
-        format!("{}_image.{}", uuid, image_extension.to_str().unwrap())
-    )
+	image_source_directory.join(
+		format!("{}_image.{}", uuid, image_extension.to_str().unwrap())
+	)
 }
 
-fn generate_settings_json_data(windows_terminal_settings_json_path: &PathBuf, random_unique_image_path: &PathBuf) -> std::result::Result<(Vec<u8>, Vec<u8>), AppError> {
-    let settings_json_file_reader = match File::open(windows_terminal_settings_json_path) {
-        Ok(file) => BufReader::new(file),
-        Err(err) => return Err(AppError::IoError(err)),
-    };
-    
-    let mut settings_file_changed_vec = Vec::new();
-    let mut settings_file_background_image_null_vec = Vec::new();
+fn generate_settings_json_data(windows_terminal_settings_json_path: &PathBuf, random_unique_image_path: &PathBuf) -> std::result::Result<Vec<u8>, AppError> {
+	let settings_json_file_reader = match File::open(windows_terminal_settings_json_path) {
+		Ok(file) => BufReader::new(file),
+		Err(err) => return Err(AppError::IoError(err)),
+	};
+	
+	let mut settings_file_changed_vec = Vec::new();
 
+	for line in settings_json_file_reader.lines() {
+		let line = line.unwrap_or(String::new());
 
-    for line in settings_json_file_reader.lines() {
-        let line = line.unwrap_or(String::new());
+		if (&line).contains("\"backgroundImage\": ") {
+			let random_unique_image_name = random_unique_image_path.to_str().unwrap_or("").replace("\\", "\\\\");
+			
+			if let Err(err) = settings_file_changed_vec.write_fmt(
+				format_args!("\t\t\t\"backgroundImage\": \"{}\",\n", random_unique_image_name)
+			) {
+				return Err(AppError::IoError(err));
+			}
+		} else {
+			let line = format!("{}\n", line);
+			let line_bytes = line.as_bytes();
 
-        if (&line).contains("\"backgroundImage\": ") {
-            let buf = "\"backgroundImage\": \"\",\n".as_bytes();
-            let random_unique_image_name = random_unique_image_path.to_str().unwrap_or("").replace("\\", "\\\\");
-            
-            if let Err(err) = settings_file_changed_vec.write_fmt(
-                format_args!("\t\t\t\"backgroundImage\": \"{}\",\n", random_unique_image_name)
-            ) {
-                return Err(AppError::IoError(err));
-            }
-            if let Err(err) = settings_file_background_image_null_vec.write(buf) {
-                return Err(AppError::IoError(err));
-            }
-        } else {
-            let line = format!("{}\n", line);
-            let line_bytes = line.as_bytes();
+			if let Err(err) = settings_file_changed_vec.write(line_bytes) {
+				return Err(AppError::IoError(err));
+			}
+		}
+	}
 
-            if let Err(err) = settings_file_changed_vec.write(line_bytes) {
-                return Err(AppError::IoError(err));
-            }
-            if let Err(err) = settings_file_background_image_null_vec.write(line_bytes) {
-                return Err(AppError::IoError(err));
-            }
-        }
-    }
-
-    Ok((settings_file_background_image_null_vec, settings_file_changed_vec))
+	Ok(settings_file_changed_vec)
 }
 
 fn write_to_settings_json(windows_terminal_settings_json_path: &PathBuf, data: &Vec<u8>) -> std::result::Result<(), AppError> {
-    let mut settings_json_file_writer = match File::create(windows_terminal_settings_json_path) {
-        Ok(file) => BufWriter::new(file),
-        Err(err) => return Err(AppError::IoError(err)),
-    };
+	let mut settings_json_file_writer = match File::create(windows_terminal_settings_json_path) {
+		Ok(file) => BufWriter::new(file),
+		Err(err) => return Err(AppError::IoError(err)),
+	};
 
-    let data_slice = data.as_slice();
+	let data_slice = data.as_slice();
 
-    if let Err(err) = settings_json_file_writer.write_all(data_slice) {
-        return Err(AppError::IoError(err));
-    }
+	if let Err(err) = settings_json_file_writer.write_all(data_slice) {
+		return Err(AppError::IoError(err));
+	}
 
-    Ok(())
+	Ok(())
 }
 
 
@@ -137,35 +128,30 @@ fn main() -> std::result::Result<(), AppError> {
 	let started_time = SystemTime::now();
 
 
-	println!("rikiaaan-terminal-background-image-changer v1.3.1");
+	println!("rikiaaan-terminal-background-image-changer v1.4.0");
 
 
-    let app_args = parse_args()?;
+	let app_args = parse_args()?;
 
-    let image_target_path = choose_random_image_path(&app_args[0])?;
-    let image_extension = image_target_path.extension().unwrap_or(OsStr::new(""));
-    let random_unique_image_path = generate_unique_image_name(image_extension, &app_args[0]);
+	let image_target_path = choose_random_image_path(&app_args[0])?;
+	let image_extension = image_target_path.extension().unwrap_or(OsStr::new(""));
+	let random_unique_image_path = generate_unique_image_name(image_extension, &app_args[0]);
 
-    if let Err(err) = fs::rename(&image_target_path, &random_unique_image_path) {
-        return Err(AppError::IoError(err));
-    }
+	if let Err(err) = fs::rename(&image_target_path, &random_unique_image_path) {
+		return Err(AppError::IoError(err));
+	}
 
 
-    let (settings_file_background_image_null_vec, settings_file_changed_vec) = generate_settings_json_data(&app_args[1], &random_unique_image_path)?;
+	let settings_file_changed_vec = generate_settings_json_data(&app_args[1], &random_unique_image_path)?;
 
-    write_to_settings_json(&app_args[1], &settings_file_changed_vec)?;
 
-    println!("settings.json backup writing delay started");
-	thread::sleep(Duration::from_millis(200));
-	println!("settings.json backup writing delay finished");
-
-    write_to_settings_json(&app_args[1], &settings_file_changed_vec)?;
+	write_to_settings_json(&app_args[1], &settings_file_changed_vec)?;
 
 
 	let elapsed = SystemTime::now().duration_since(started_time).unwrap();
 	println!("finished: {}ms", elapsed.as_millis());
 
-    Ok(())
+	Ok(())
 }
 
 
